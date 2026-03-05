@@ -4,14 +4,14 @@ An AI-powered emotion detection system that recommends music based on your real-
 
 ## About
 
-This application uses **DeepFace** to detect emotions from your webcam and automatically recommends songs from YouTube that match your current mood. 
+This application uses a custom-trained PyTorch emotion model to detect emotions from your webcam and automatically recommends songs from YouTube that match your current mood. 
 
 ### How it works
 1. Your webcam captures your face in real-time
-2. DeepFace analyzes 7 emotions: happy, sad, angry, neutral, fear, surprise, disgust
-3. Based on detected emotion, the app searches YouTube for matching music
-4. Top 5 recommended tracks appear on screen and in console
-5. Press `1`/`2`/`3` to play any suggested track in your browser
+2. The backend loads your trained `resnet18` model from `backend/emotion_model/`
+3. The model predicts emotion probabilities from each frame
+4. Based on detected emotion, the app searches YouTube for matching music
+5. Top 5 recommended tracks appear on screen
 
 ### Key Features
 - 🎥 Real-time emotion detection from webcam
@@ -22,6 +22,23 @@ This application uses **DeepFace** to detect emotions from your webcam and autom
 
 ### Tech Stack
 - **Backend**: FastAPI
-- **ML**: DeepFace, OpenCV
+- **ML**: PyTorch, TorchVision, Pillow
 - **Music API**: YouTube Data API v3
 - **Language**: Python 3.11+
+
+## Model files
+
+Place the trained model files in:
+
+- `backend/emotion_model/emotion_model.pth`
+- `backend/emotion_model/class_names.json`
+
+`class_names.json` can be either a list (e.g., `["Angry", "Fear", ...]`) or an index-to-label dictionary.
+
+## Run backend
+
+1. Install dependencies:
+	- `pip install -r requirements.txt`
+2. Start API server from project root:
+	- `uvicorn backend.main:app --reload`
+3. Open the frontend and use Mood Detect.

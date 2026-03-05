@@ -1,0 +1,55 @@
+{
+  "name": "mood-music-desktop",
+  "version": "1.0.0",
+  "description": "AI-powered mood music desktop app",
+  "main": "electron.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "vite": "vite",
+    "build": "vite build && electron-builder build --win --publish never"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "vite": "^5.0.12",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.moodmusic.app",
+    "productName": "Mood Music",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.js",
+      "preload.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mood Music"
+    }
+  }
+}
