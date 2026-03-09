@@ -45,6 +45,7 @@ export default function Search() {
                 videoId: item.id.videoId,
                 title: item.snippet.title,
                 channel: item.snippet.channelTitle,
+                description: item.snippet.description ?? '',
                 thumbnail: item.snippet.thumbnails?.medium?.url ?? '',
                 youtube_url: `https://www.youtube.com/watch?v=${item.id.videoId}`
             })))

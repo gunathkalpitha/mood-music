@@ -3,6 +3,8 @@ import axios from 'axios'
 import MusicPlayer from '../components/MusicPlayer.jsx'
 import { useLibrary } from '../contexts/LibraryContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
+import { useSettings } from '../contexts/SettingsContext.jsx'
+import { annotateTracksWithEmotion } from '../utils/trackEmotionClassifier.js'
 
 const YOUTUBE_API_KEY = 'AIzaSyCzRyvCNt7H7kmrOeo1uCn3CKqbyylv-y0'
 const PLAYLIST_EMOJIS = ['🎵', '🎸', '🎷', '🥁', '🎹', '🎺', '🎻', '🎤', '🔥', '💜', '⚡', '🌙', '☀️', '🌊']
@@ -14,7 +16,8 @@ const HOME_QUERIES = [
 ]
 
 export default function PlaylistPlayer({ onBack, user, onUserChange }) {
-    const { playlists, createPlaylist, addToPlaylist, removeFromPlaylist, deletePlaylist } = useLibrary()
+    const { playlists, createPlaylist, addToPlaylist, removeFromPlaylist, deletePlaylist, replacePlaylistTracks } = useLibrary()
+    const { settings } = useSettings()
     const toast = useToast()
 
     const [selectedPl, setSelectedPl] = useState(playlists[0]?.id ?? null)
@@ -29,12 +32,32 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
     const [premiumPrompt, setPremiumPrompt] = useState(false)
 
     const selectedPlaylist = playlists.find(p => p.id === selectedPl)
+    const emotionCounts = useMemo(() => {
+        const counts = { happy: 0, sad: 0, angry: 0, fear: 0, surprise: 0 }
+        if (!selectedPlaylist) return counts
+        for (const track of selectedPlaylist.tracks) {
+            if (counts[track.aiEmotion] !== undefined) counts[track.aiEmotion] += 1
+        }
+        return counts
+    }, [selectedPlaylist])
     const isPremium = Boolean(user?.premium)
+    const playlistLink = settings?.playlistLink?.trim() ?? ''
+    const openExternalInBrowser = settings?.openExternalLinksInBrowser !== false
+
+    const openSavedPlaylistLink = () => {
+        if (!playlistLink) return
+        if (openExternalInBrowser) {
+            window.open(playlistLink, '_blank', 'noopener,noreferrer')
+            return
+        }
+        window.location.href = playlistLink
+    }
 
     const mapToTrack = useCallback((item) => ({
         videoId: item.id.videoId,
         title: item.snippet.title,
         channel: item.snippet.channelTitle,
+        description: item.snippet.description ?? '',
         thumbnail: item.snippet.thumbnails?.medium?.url ?? '',
         youtube_url: `https://www.youtube.com/watch?v=${item.id.videoId}`
     }), [])
@@ -103,9 +126,22 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
 
     const addSong = useCallback((track) => {
         if (!selectedPl) { toast('Select a playlist first', 'error'); return }
-        addToPlaylist(selectedPl, track)
+        const categorized = annotateTracksWithEmotion([track])[0]
+        addToPlaylist(selectedPl, categorized)
         toast(`Added to "${selectedPlaylist?.name}" 🎵`, 'success')
     }, [selectedPl, selectedPlaylist, addToPlaylist, toast])
+
+    const categorizeSelectedPlaylist = useCallback(() => {
+        if (!selectedPlaylist) return
+        if (selectedPlaylist.tracks.length === 0) {
+            toast('No tracks to categorize in this playlist.', 'info')
+            return
+        }
+
+        const categorized = annotateTracksWithEmotion(selectedPlaylist.tracks, true)
+        replacePlaylistTracks(selectedPlaylist.id, categorized)
+        toast(`AI categorized ${categorized.length} track(s) into 5 emotions.`, 'success')
+    }, [replacePlaylistTracks, selectedPlaylist, toast])
 
     const playFromExternal = useCallback((track) => {
         if (!isPremium) {
@@ -181,6 +217,12 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
                         Upgrade
                     </button>
                 )}
+                {playlistLink && (
+                    <button className="btn btn-ghost" style={{ fontSize: 12, padding: '7px 14px' }}
+                        onClick={openSavedPlaylistLink}>
+                        🔗 Open Saved Playlist
+                    </button>
+                )}
                 <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }}
                     onClick={() => setShowNewPl(true)}>
                     + New Playlist
@@ -220,8 +262,24 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
                                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                                         {selectedPlaylist.tracks.length} tracks saved
                                     </div>
+                                    {selectedPlaylist.tracks.length > 0 && (
+                                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>AI categories:</span>
+                                            <span style={{ fontSize: 11 }}>😄 {emotionCounts.happy}</span>
+                                            <span style={{ fontSize: 11 }}>😢 {emotionCounts.sad}</span>
+                                            <span style={{ fontSize: 11 }}>😠 {emotionCounts.angry}</span>
+                                            <span style={{ fontSize: 11 }}>😨 {emotionCounts.fear}</span>
+                                            <span style={{ fontSize: 11 }}>😲 {emotionCounts.surprise}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div style={{ display: 'flex', gap: 8 }}>
+                                    {selectedPlaylist.tracks.length > 0 && (
+                                        <button className="btn btn-ghost" style={{ fontSize: 12, padding: '7px 14px' }}
+                                            onClick={categorizeSelectedPlaylist}>
+                                            🤖 Categorize Playlist
+                                        </button>
+                                    )}
                                     {selectedPlaylist.tracks.length > 0 && (
                                         <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }}
                                             onClick={() => setPlayQueue(selectedPlaylist)}>
@@ -259,6 +317,12 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
                                         <div className="queue-info">
                                             <div className="queue-track-title">{t.title}</div>
                                             <div className="queue-track-channel">{t.channel}</div>
+                                            {t.aiEmotion && (
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                    AI emotion: {t.aiEmotion}
+                                                    {typeof t.aiEmotionConfidence === 'number' ? ` (${Math.round(t.aiEmotionConfidence * 100)}%)` : ''}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="queue-item-actions" style={{ opacity: 1 }}>
                                             <a href={t.youtube_url} target="_blank" rel="noopener noreferrer"

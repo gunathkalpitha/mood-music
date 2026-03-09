@@ -61,6 +61,22 @@ export default function Home({ answers, onChoose, user }) {
                         📋 Your Library
                     </div>
                 </div>
+
+                {/* Settings */}
+                <div className="choice-card" onClick={() => onChoose('settings')}
+                    style={{
+                        background: 'linear-gradient(135deg, rgba(16,185,129,0.14), rgba(6,182,212,0.08))',
+                        borderColor: 'rgba(16,185,129,0.35)'
+                    }}>
+                    <span className="choice-icon" style={{ filter: 'drop-shadow(0 0 20px rgba(16,185,129,0.5))' }}>⚙️</span>
+                    <div className="choice-title">Settings</div>
+                    <div className="choice-desc">
+                        Manage detection interval, Gmail profile, playlist links, backend URL, and app preferences
+                    </div>
+                    <div className="choice-badge" style={{ background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', borderColor: 'rgba(16,185,129,0.5)' }}>
+                        🛠 Customize
+                    </div>
+                </div>
             </div>
 
             <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>

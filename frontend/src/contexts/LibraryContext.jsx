@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { annotateTrackWithEmotion } from '../utils/trackEmotionClassifier.js'
 
 const LibraryContext = createContext(null)
 
@@ -49,10 +50,11 @@ export function LibraryProvider({ children }) {
     }, [])
 
     const addToPlaylist = useCallback((playlistId, track) => {
+        const categorizedTrack = annotateTrackWithEmotion(track)
         setPlaylists(prev => prev.map(p => {
             if (p.id !== playlistId) return p
-            if (p.tracks.find(t => t.videoId === track.videoId)) return p
-            return { ...p, tracks: [...p.tracks, track] }
+            if (p.tracks.find(t => t.videoId === categorizedTrack.videoId)) return p
+            return { ...p, tracks: [...p.tracks, categorizedTrack] }
         }))
     }, [])
 
@@ -64,11 +66,19 @@ export function LibraryProvider({ children }) {
         ))
     }, [])
 
+    const replacePlaylistTracks = useCallback((playlistId, tracks) => {
+        setPlaylists(prev => prev.map(p =>
+            p.id === playlistId
+                ? { ...p, tracks }
+                : p
+        ))
+    }, [])
+
     return (
         <LibraryContext.Provider value={{
             favorites, isFav, toggleFav,
             playlists, createPlaylist, deletePlaylist, renamePlaylist,
-            addToPlaylist, removeFromPlaylist
+            addToPlaylist, removeFromPlaylist, replacePlaylistTracks
         }}>
             {children}
         </LibraryContext.Provider>

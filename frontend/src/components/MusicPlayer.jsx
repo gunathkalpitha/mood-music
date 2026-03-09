@@ -1,13 +1,36 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useLibrary } from '../contexts/LibraryContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 
-export default function MusicPlayer({ tracks, title, subtitle, accentColor, onAddToPlaylist }) {
+export default function MusicPlayer({
+    tracks,
+    title,
+    subtitle,
+    accentColor,
+    onAddToPlaylist,
+    autoPlay = false,
+    autoPlayToken = 0,
+    initialIndex = 0,
+}) {
     const [currentIdx, setCurrentIdx] = useState(0)
     const [showIframe, setShowIframe] = useState(false)
     const { isFav, toggleFav, playlists, addToPlaylist } = useLibrary()
     const toast = useToast()
     const [showPlMenu, setShowPlMenu] = useState(false)
+
+    useEffect(() => {
+        if (!tracks || tracks.length === 0) return
+        const safeIndex = Math.max(0, Math.min(initialIndex, tracks.length - 1))
+        setCurrentIdx(safeIndex)
+        setShowIframe(Boolean(autoPlay))
+    }, [autoPlay, autoPlayToken, initialIndex, tracks])
+
+    useEffect(() => {
+        if (!tracks || tracks.length === 0) return
+        if (currentIdx > tracks.length - 1) {
+            setCurrentIdx(Math.max(0, tracks.length - 1))
+        }
+    }, [currentIdx, tracks])
 
     const track = tracks?.[currentIdx]
 
