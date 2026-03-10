@@ -13,6 +13,40 @@ This application uses a custom-trained PyTorch emotion model to detect emotions 
 4. Based on detected emotion, the app searches YouTube for matching music
 5. Top 5 recommended tracks appear on screen
 
+## Automatic Song Mood Categorization (YouTube Link Pipeline)
+
+The backend now includes a second pipeline that categorizes songs from YouTube links using:
+
+1. Audio download (yt-dlp)
+2. Audio feature extraction (librosa): tempo (BPM), energy, key/mode
+3. Optional lyrics sentiment (TextBlob + lyrics.ovh)
+4. Rule-based mood scoring (happy/sad/chill/angry/fear/surprise/neutral)
+
+### API endpoints
+
+- `POST /analyze-song-mood`
+- `POST /analyze-song-moods` (batch)
+
+Example request:
+
+```json
+{
+	"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+	"title": "Song title",
+	"channel": "Artist channel",
+	"description": "Optional description"
+}
+```
+
+Example response fields:
+
+- `audio_features.tempo_bpm`
+- `audio_features.key_label`
+- `audio_features.energy`
+- `lyrics.sentiment_polarity`
+- `final_mood`
+- `confidence`
+
 ### Key Features
 - 🎥 Real-time emotion detection from webcam
 - 🎵 Automatic music recommendations based on mood
@@ -39,6 +73,24 @@ Place the trained model files in:
 
 1. Install dependencies:
 	- `pip install -r requirements.txt`
-2. Start API server from project root:
+2. Ensure FFmpeg is installed and available on PATH (recommended for consistent audio decoding).
+3. Start API server from project root:
 	- `uvicorn backend.main:app --reload`
-3. Open the frontend and use Mood Detect.
+4. Open the frontend and use Mood Detect.
+
+## YouTube API Key Setup
+
+Playlist/Search use the backend endpoint (`/youtube-search`) which calls YouTube Data API v3.
+Set your key for backend in:
+
+- project root `.env` (or backend environment)
+
+```env
+YOUTUBE_API_KEY=your_youtube_data_api_key_here
+```
+
+Optional: if you later add direct frontend YouTube calls, you can also set:
+
+```env
+VITE_YOUTUBE_API_KEY=your_youtube_data_api_key_here
+```

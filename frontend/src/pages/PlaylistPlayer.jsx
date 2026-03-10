@@ -4,9 +4,9 @@ import MusicPlayer from '../components/MusicPlayer.jsx'
 import { useLibrary } from '../contexts/LibraryContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useSettings } from '../contexts/SettingsContext.jsx'
-import { annotateTracksWithEmotion } from '../utils/trackEmotionClassifier.js'
+import { annotateTrackWithEmotion, annotateTracksWithEmotion } from '../utils/trackEmotionClassifier.js'
+import { analyzeTrackMood, analyzeTracksMoodBatch } from '../utils/songMoodApi.js'
 
-const YOUTUBE_API_KEY = 'AIzaSyCzRyvCNt7H7kmrOeo1uCn3CKqbyylv-y0'
 const PLAYLIST_EMOJIS = ['🎵', '🎸', '🎷', '🥁', '🎹', '🎺', '🎻', '🎤', '🔥', '💜', '⚡', '🌙', '☀️', '🌊']
 const HOME_QUERIES = [
     'top music hits',
@@ -14,6 +14,45 @@ const HOME_QUERIES = [
     'lofi beats',
     'trending pop songs',
 ]
+
+const EMOTION_LABELS = {
+    happy: { icon: '😄', text: 'happy' },
+    chill: { icon: '😌', text: 'chill' },
+    neutral: { icon: '😐', text: 'neutral' },
+    sad: { icon: '😢', text: 'sad' },
+    angry: { icon: '😠', text: 'angry' },
+    fear: { icon: '😨', text: 'fear' },
+    surprise: { icon: '😲', text: 'surprise' },
+}
+
+const EMOTION_ORDER = ['happy', 'chill', 'neutral', 'sad', 'angry', 'fear', 'surprise']
+
+function getYoutubeErrorMessage(error) {
+    const apiError = error?.response?.data?.error || error
+    const reason = apiError?.reason || ''
+
+    if (reason === 'quotaExceeded') {
+        return 'YouTube daily quota exceeded on backend API key. Try again later or update YOUTUBE_API_KEY in backend.'
+    }
+
+    if (reason === 'keyInvalid') {
+        return 'YouTube API key is invalid on backend. Update YOUTUBE_API_KEY.'
+    }
+
+    if (reason === 'accessNotConfigured') {
+        return 'YouTube Data API v3 is not enabled for backend key.'
+    }
+
+    if (reason === 'missing_api_key') {
+        return 'Backend YOUTUBE_API_KEY is missing. Add it to backend environment.'
+    }
+
+    if (apiError?.message) {
+        return `YouTube search failed: ${apiError.message}`
+    }
+
+    return 'YouTube search failed due to network/API error.'
+}
 
 export default function PlaylistPlayer({ onBack, user, onUserChange }) {
     const { playlists, createPlaylist, addToPlaylist, removeFromPlaylist, deletePlaylist, replacePlaylistTracks } = useLibrary()
@@ -30,19 +69,22 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
     const [newPlName, setNewPlName] = useState('')
     const [showNewPl, setShowNewPl] = useState(false)
     const [premiumPrompt, setPremiumPrompt] = useState(false)
+    const [categorizing, setCategorizing] = useState(false)
 
     const selectedPlaylist = playlists.find(p => p.id === selectedPl)
     const emotionCounts = useMemo(() => {
-        const counts = { happy: 0, sad: 0, angry: 0, fear: 0, surprise: 0 }
+        const counts = {}
         if (!selectedPlaylist) return counts
         for (const track of selectedPlaylist.tracks) {
-            if (counts[track.aiEmotion] !== undefined) counts[track.aiEmotion] += 1
+            const bucket = (track.aiEmotion || 'uncategorized').toLowerCase()
+            counts[bucket] = (counts[bucket] || 0) + 1
         }
         return counts
     }, [selectedPlaylist])
     const isPremium = Boolean(user?.premium)
     const playlistLink = settings?.playlistLink?.trim() ?? ''
     const openExternalInBrowser = settings?.openExternalLinksInBrowser !== false
+    const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
 
     const openSavedPlaylistLink = () => {
         if (!playlistLink) return
@@ -53,31 +95,19 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
         window.location.href = playlistLink
     }
 
-    const mapToTrack = useCallback((item) => ({
-        videoId: item.id.videoId,
-        title: item.snippet.title,
-        channel: item.snippet.channelTitle,
-        description: item.snippet.description ?? '',
-        thumbnail: item.snippet.thumbnails?.medium?.url ?? '',
-        youtube_url: `https://www.youtube.com/watch?v=${item.id.videoId}`
-    }), [])
-
     const loadHomeFeed = useCallback(async () => {
         setLoadingHome(true)
         try {
-            const calls = HOME_QUERIES.map((q) => axios.get('https://www.googleapis.com/youtube/v3/search', {
-                params: {
-                    part: 'snippet',
-                    q,
-                    type: 'video',
-                    videoCategoryId: '10',
-                    maxResults: 6,
-                    key: YOUTUBE_API_KEY,
-                }
+            const calls = HOME_QUERIES.map((q) => axios.post(`${backendUrl}/youtube-search`, {
+                query: q,
+                max_results: 6,
             }))
 
             const responses = await Promise.all(calls)
-            const merged = responses.flatMap((res) => res.data.items ?? []).map(mapToTrack)
+            const merged = responses.flatMap((res) => {
+                const payload = res.data || {}
+                return payload.error ? [] : (payload.tracks || [])
+            })
 
             const deduped = []
             const seenIds = new Set()
@@ -89,12 +119,13 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
             }
 
             setHomeFeed(deduped)
-        } catch {
+        } catch (error) {
+            toast(getYoutubeErrorMessage(error), 'error')
             setHomeFeed([])
         } finally {
             setLoadingHome(false)
         }
-    }, [mapToTrack])
+    }, [backendUrl, toast])
 
     useEffect(() => {
         loadHomeFeed()
@@ -110,38 +141,79 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
             setSearchRes([])
             return
         }
+
         setSearching(true)
         try {
-            const res = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-                params: {
-                    part: 'snippet', q: searchQ.trim(),
-                    type: 'video', videoCategoryId: '10',
-                    maxResults: 15, key: YOUTUBE_API_KEY
-                }
+            const res = await axios.post(`${backendUrl}/youtube-search`, {
+                query: searchQ.trim(),
+                max_results: 15,
             })
-            setSearchRes(res.data.items?.map(mapToTrack) ?? [])
-        } catch { toast('YouTube search failed', 'error') }
-        finally { setSearching(false) }
-    }, [searchQ, toast, mapToTrack])
 
-    const addSong = useCallback((track) => {
+            if (res.data?.error) {
+                toast(getYoutubeErrorMessage(res.data.error), 'error')
+                setSearchRes([])
+            } else {
+                setSearchRes(res.data?.tracks ?? [])
+            }
+        } catch (error) {
+            toast(getYoutubeErrorMessage(error), 'error')
+        }
+        finally { setSearching(false) }
+    }, [searchQ, toast, backendUrl])
+
+    const addSong = useCallback(async (track) => {
         if (!selectedPl) { toast('Select a playlist first', 'error'); return }
-        const categorized = annotateTracksWithEmotion([track])[0]
+
+        let categorized = annotateTrackWithEmotion(track)
+        try {
+            categorized = await analyzeTrackMood(track, backendUrl)
+        } catch {
+            // Keep local classifier result if backend audio analysis is unavailable.
+        }
+
+        const alreadyExists = selectedPlaylist?.tracks?.some((t) => t.videoId === categorized.videoId)
+        if (alreadyExists) {
+            toast('This song is already in the selected playlist.', 'info')
+            return
+        }
+
         addToPlaylist(selectedPl, categorized)
         toast(`Added to "${selectedPlaylist?.name}" 🎵`, 'success')
-    }, [selectedPl, selectedPlaylist, addToPlaylist, toast])
+    }, [selectedPl, selectedPlaylist, addToPlaylist, toast, backendUrl])
 
-    const categorizeSelectedPlaylist = useCallback(() => {
+    const categorizeSelectedPlaylist = useCallback(async () => {
         if (!selectedPlaylist) return
         if (selectedPlaylist.tracks.length === 0) {
             toast('No tracks to categorize in this playlist.', 'info')
             return
         }
 
-        const categorized = annotateTracksWithEmotion(selectedPlaylist.tracks, true)
-        replacePlaylistTracks(selectedPlaylist.id, categorized)
-        toast(`AI categorized ${categorized.length} track(s) into 5 emotions.`, 'success')
-    }, [replacePlaylistTracks, selectedPlaylist, toast])
+        setCategorizing(true)
+        try {
+            let categorized = await analyzeTracksMoodBatch(selectedPlaylist.tracks, backendUrl)
+
+            // Ensure every track has at least a local fallback category.
+            categorized = categorized.map((track) => {
+                if (track.aiEmotion && track.aiEmotionSource) return track
+                return annotateTrackWithEmotion(track)
+            })
+
+            replacePlaylistTracks(selectedPlaylist.id, categorized)
+
+            const audioBasedCount = categorized.filter((track) => track.aiEmotionSource === 'audio_pipeline_v1').length
+            if (audioBasedCount > 0) {
+                toast(`AI categorized ${categorized.length} track(s). Audio-based analysis: ${audioBasedCount}.`, 'success')
+            } else {
+                toast('Categorization finished using local fallback rules.', 'info')
+            }
+        } catch {
+            const fallback = annotateTracksWithEmotion(selectedPlaylist.tracks, true)
+            replacePlaylistTracks(selectedPlaylist.id, fallback)
+            toast('Audio pipeline is unavailable; used local keyword categorizer.', 'info')
+        } finally {
+            setCategorizing(false)
+        }
+    }, [replacePlaylistTracks, selectedPlaylist, toast, backendUrl])
 
     const playFromExternal = useCallback((track) => {
         if (!isPremium) {
@@ -265,19 +337,23 @@ export default function PlaylistPlayer({ onBack, user, onUserChange }) {
                                     {selectedPlaylist.tracks.length > 0 && (
                                         <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                                             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>AI categories:</span>
-                                            <span style={{ fontSize: 11 }}>😄 {emotionCounts.happy}</span>
-                                            <span style={{ fontSize: 11 }}>😢 {emotionCounts.sad}</span>
-                                            <span style={{ fontSize: 11 }}>😠 {emotionCounts.angry}</span>
-                                            <span style={{ fontSize: 11 }}>😨 {emotionCounts.fear}</span>
-                                            <span style={{ fontSize: 11 }}>😲 {emotionCounts.surprise}</span>
+                                            {EMOTION_ORDER.filter((mood) => (emotionCounts[mood] || 0) > 0).map((mood) => (
+                                                <span key={mood} style={{ fontSize: 11 }}>
+                                                    {EMOTION_LABELS[mood]?.icon || '🎵'} {emotionCounts[mood]}
+                                                </span>
+                                            ))}
+                                            {(emotionCounts.uncategorized || 0) > 0 && (
+                                                <span style={{ fontSize: 11 }}>🎵 {emotionCounts.uncategorized}</span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     {selectedPlaylist.tracks.length > 0 && (
                                         <button className="btn btn-ghost" style={{ fontSize: 12, padding: '7px 14px' }}
-                                            onClick={categorizeSelectedPlaylist}>
-                                            🤖 Categorize Playlist
+                                            onClick={categorizeSelectedPlaylist}
+                                            disabled={categorizing}>
+                                            {categorizing ? 'Analyzing songs...' : 'Categorize Playlist'}
                                         </button>
                                     )}
                                     {selectedPlaylist.tracks.length > 0 && (

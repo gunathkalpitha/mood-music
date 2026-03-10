@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react'
 import axios from 'axios'
 import VideoCard from '../components/VideoCard.jsx'
-
-const YOUTUBE_API_KEY = 'AIzaSyCzRyvCNt7H7kmrOeo1uCn3CKqbyylv-y0'
+import { useSettings } from '../contexts/SettingsContext.jsx'
 
 const MOOD_CHIPS = [
     { label: '😊 Happy', query: 'happy upbeat music' },
@@ -16,12 +15,25 @@ const MOOD_CHIPS = [
 ]
 
 export default function Search() {
+    const { settings } = useSettings()
+
     const [query, setQuery] = useState('')
     const [results, setResults] = useState([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
     const [searched, setSearched] = useState(false)
     const inputRef = useRef(null)
+    const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
+
+    const toUiError = useCallback((apiError) => {
+        const reason = apiError?.reason || ''
+        if (reason === 'quotaExceeded') return 'YouTube quota exceeded on backend key. Try later or update YOUTUBE_API_KEY.'
+        if (reason === 'keyInvalid') return 'Backend YOUTUBE_API_KEY is invalid.'
+        if (reason === 'accessNotConfigured') return 'YouTube Data API v3 is not enabled for backend key.'
+        if (reason === 'missing_api_key') return 'Backend YOUTUBE_API_KEY is missing.'
+        if (apiError?.message) return `YouTube search failed: ${apiError.message}`
+        return 'YouTube search failed. Check backend/API settings and try again.'
+    }, [])
 
     const search = useCallback(async (q) => {
         const term = (q ?? query).trim()
@@ -30,32 +42,25 @@ export default function Search() {
         setError('')
         setSearched(true)
         try {
-            const res = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-                params: {
-                    part: 'snippet',
-                    q: term,
-                    type: 'video',
-                    videoCategoryId: '10',
-                    maxResults: 20,
-                    key: YOUTUBE_API_KEY
-                }
+            const res = await axios.post(`${backendUrl}/youtube-search`, {
+                query: term,
+                max_results: 20,
             })
-            const items = res.data.items ?? []
-            setResults(items.map(item => ({
-                videoId: item.id.videoId,
-                title: item.snippet.title,
-                channel: item.snippet.channelTitle,
-                description: item.snippet.description ?? '',
-                thumbnail: item.snippet.thumbnails?.medium?.url ?? '',
-                youtube_url: `https://www.youtube.com/watch?v=${item.id.videoId}`
-            })))
+
+            if (res.data?.error) {
+                setError(toUiError(res.data.error))
+                setResults([])
+                return
+            }
+
+            setResults(res.data?.tracks ?? [])
         } catch (e) {
-            setError('YouTube search failed. Check your API key or try again.')
+            setError(toUiError(e?.response?.data?.error || e))
             setResults([])
         } finally {
             setLoading(false)
         }
-    }, [query])
+    }, [query, backendUrl, toUiError])
 
     const handleChip = (chipQuery) => {
         setQuery(chipQuery)

@@ -21,6 +21,9 @@ function createWindow() {
         icon: path.join(__dirname, 'assets', 'icon.png')
     })
 
+    // Start maximized so the player always opens in full app window.
+    win.maximize()
+
     if (isDev) {
         win.loadURL('http://localhost:5173')
         // win.webContents.openDevTools()

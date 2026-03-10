@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { useLibrary } from '../contexts/LibraryContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 
@@ -22,7 +22,12 @@ export default function MusicPlayer({
         if (!tracks || tracks.length === 0) return
         const safeIndex = Math.max(0, Math.min(initialIndex, tracks.length - 1))
         setCurrentIdx(safeIndex)
-        setShowIframe(Boolean(autoPlay))
+        // Always trigger auto-play when autoPlayToken changes and autoPlay is true
+        if (autoPlay && autoPlayToken > 0) {
+            setShowIframe(true)
+        } else {
+            setShowIframe(Boolean(autoPlay))
+        }
     }, [autoPlay, autoPlayToken, initialIndex, tracks])
 
     useEffect(() => {
@@ -67,7 +72,31 @@ export default function MusicPlayer({
         )
     }
 
-    const embedUrl = track ? `https://www.youtube.com/embed/${track.videoId}?autoplay=1&rel=0` : ''
+    const embedUrl = useMemo(() => {
+        if (!track?.videoId) return ''
+
+        const base = `https://www.youtube.com/embed/${track.videoId}`
+        const params = new URLSearchParams({
+            autoplay: '1',
+            rel: '0',
+        })
+
+        // Ask YouTube to continue with the rest of the current queue.
+        const seen = new Set([track.videoId])
+        const remainingIds = []
+        for (let i = currentIdx + 1; i < tracks.length; i += 1) {
+            const id = tracks[i]?.videoId
+            if (!id || seen.has(id)) continue
+            seen.add(id)
+            remainingIds.push(id)
+        }
+
+        if (remainingIds.length > 0) {
+            params.set('playlist', remainingIds.join(','))
+        }
+
+        return `${base}?${params.toString()}`
+    }, [currentIdx, track, tracks])
 
     return (
         <div className="music-player-page">

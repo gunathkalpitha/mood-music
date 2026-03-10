@@ -103,6 +103,7 @@ export default function AIPlayer({ onBack, autoStartToken = 0 }) {
     const detectionInFlightRef = useRef(false)
     const lastAutoStartTokenRef = useRef(0)
     const hasAutoStartedRef = useRef(false)
+    const playedTracksByEmotionRef = useRef({})
 
     const [phase, setPhase] = useState('permission') // permission | loading | result | error
     const [stepIdx, setStepIdx] = useState(0)
@@ -111,6 +112,7 @@ export default function AIPlayer({ onBack, autoStartToken = 0 }) {
     const [error, setError] = useState('')
     const [trackSource, setTrackSource] = useState('api')
     const [autoPlayToken, setAutoPlayToken] = useState(0)
+    const [initialTrackIndex, setInitialTrackIndex] = useState(0)
 
 const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
     const captureQuality = Number(settings?.captureQuality) || 0.8
@@ -122,6 +124,32 @@ const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
         () => playlists.flatMap((playlist) => playlist.tracks || []),
         [playlists]
     )
+
+    const getNextTrackIndexForEmotion = useCallback((candidateTracks, detectedEmotion) => {
+        if (!candidateTracks || candidateTracks.length === 0) return 0
+
+        const emotionKey = (detectedEmotion || 'neutral').toLowerCase()
+        const playedForEmotion = playedTracksByEmotionRef.current[emotionKey] || new Set()
+
+        let nextIndex = candidateTracks.findIndex((track) => {
+            const id = track?.videoId
+            return id && !playedForEmotion.has(id)
+        })
+
+        // If we played all tracks in this emotion bucket, start a fresh cycle.
+        if (nextIndex === -1) {
+            playedForEmotion.clear()
+            nextIndex = 0
+        }
+
+        const chosenId = candidateTracks[nextIndex]?.videoId
+        if (chosenId) {
+            playedForEmotion.add(chosenId)
+        }
+
+        playedTracksByEmotionRef.current[emotionKey] = playedForEmotion
+        return nextIndex
+    }, [])
 
     const waitForUsableVideoFrame = useCallback(async () => {
         const video = videoRef.current
@@ -251,6 +279,7 @@ const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
             setEmotion({ emotion: detectedEmotion, scores: data.scores })
             setTracks(chosenTracks)
             setTrackSource(chosenSource)
+            setInitialTrackIndex(getNextTrackIndexForEmotion(chosenTracks, detectedEmotion))
             if (autoPlayAfterDetection && chosenTracks.length > 0) {
                 setAutoPlayToken((value) => value + 1)
             }
@@ -314,6 +343,7 @@ const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
         setEmotion(null)
         setTracks([])
         setTrackSource('api')
+        setInitialTrackIndex(0)
         setStepIdx(0)
     }
 
@@ -459,7 +489,7 @@ const backendUrl = settings?.backendUrl?.trim() || 'http://127.0.0.1:8000'
                 accentColor={cfg?.color ?? 'var(--accent)'}
                 autoPlay={autoPlayAfterDetection}
                 autoPlayToken={autoPlayToken}
-                initialIndex={0}
+                initialIndex={initialTrackIndex}
             />
         </div>
     )
