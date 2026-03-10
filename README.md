@@ -50,8 +50,9 @@ Example response fields:
 ### Key Features
 - 🎥 Real-time emotion detection from webcam
 - 🎵 Automatic music recommendations based on mood
-- ⌨️ Quick play hotkeys (1/2/3)
-- 📊 Live confidence scores overlay
+- 🔁 AI mood playback rotates to the next unplayed song per detected emotion (reduces repeats)
+- ⏭️ Auto-continues to next songs in the selected queue/category
+- 🖥️ Electron desktop app opens maximized by default
 - 🚀 FastAPI backend for scalable emotion analysis
 
 ### Tech Stack
@@ -78,6 +79,17 @@ Place the trained model files in:
 	- `uvicorn backend.main:app --reload`
 4. Open the frontend and use Mood Detect.
 
+## Run desktop frontend
+
+From `frontend/`:
+
+1. Install dependencies:
+	- `npm install`
+2. Start app in development mode (Vite + Electron):
+	- `npm run dev`
+3. Build desktop installer:
+	- `npm run build`
+
 ## YouTube API Key Setup
 
 Playlist/Search use the backend endpoint (`/youtube-search`) which calls YouTube Data API v3.
@@ -94,3 +106,14 @@ Optional: if you later add direct frontend YouTube calls, you can also set:
 ```env
 VITE_YOUTUBE_API_KEY=your_youtube_data_api_key_here
 ```
+
+## Troubleshooting YouTube Search / Add Song
+
+If search or add-song fails, check backend `/youtube-search` error reason:
+
+- `quotaExceeded`: Daily quota is exhausted for current backend key.
+- `keyInvalid`: API key is invalid.
+- `accessNotConfigured`: YouTube Data API v3 is not enabled in Google Cloud project.
+- `missing_api_key`: `YOUTUBE_API_KEY` is not set in backend environment.
+
+After updating environment variables, restart the backend server.
